@@ -1,0 +1,55 @@
+from pyspark import SparkConf, SparkContext
+from pyspark.sql import functions as F
+from pyspark.sql import SparkSession
+
+conf = SparkConf().setAppName("MyDFProject").set("spark.ui.port", "4041")
+sc = SparkContext(conf=conf)
+
+spark = SparkSession.builder.appName('DFproject').config(conf=conf).getOrCreate()
+
+## The aim of this project is to determine the most common word in English given text files
+'''The project will be completed in 5 steps
+    1. Read: Read the input data (we’re assuming a plain text file)
+    2. Token: Tokenize each word
+    3.Clean: Remove any punctuation and/or tokens that aren’t words.
+    4.Count: Count the frequency of each word present in the text
+    5.Answer: Return the top 10 (or 20, 50, 100)
+'''
+
+# step 1 : Read the input data (we’re assuming a plain text file)
+books = spark.read.text("*.txt")
+# step 2 : Tokenize each word by spliting with " " to line using split function
+lines = books.select(F.split(F.col("value"), " ").alias("line"))
+# lines.show()
+# The result is in a list of element, we need to transorm it to a row of leements using explode function
+words = lines.select(F.explode(F.col("line").alias("word")))
+#words.printSchema()
+#Let's convert all the words to lowercase using lower function
+words_lower = words.select(F.lower(F.col("col").alias("word")))
+words_lower= words_lower.withColumnRenamed("col", "word")
+#words_lower.printSchema()
+# step 3 Remove punctuation or token that are not words using regexp_extrat()
+nonull_words =words_lower.select(F.regexp_extract(F.col('lower(col AS word)'),"['a-z']*", 0))
+#filter empty tokens
+nonull_words = nonull_words.filter(F.col("regexp_extract(lower(col AS word), ['a-z']*, 0)") !='')
+nonull_words = nonull_words.withColumnRenamed("regexp_extract(lower(col AS word), ['a-z']*, 0)","all_words")
+# step 4: Group the words and count the number of occurence
+groups = nonull_words.groupby(F.col('all_words'))
+result = groups.count()
+result  = result.orderBy('count', ascending=False)
+
+# write the result to a csv
+result.coalesce(1).write.csv('./result.csv')
+
+
+'''result = (spark.read.text("*.txt")
+          .select(F.split(F.col("value"), " ").alias("line"))
+          .select(F.explode(F.col("line")).alias("word"))
+          .select(F.lower(F.col("word")).alias("word"))
+          .select(F.regexp_extract(F.col("word"),"[a-z']*", 0).alias("word"))
+          .filter(F.col("word") != "")
+          .groupby(F.col("word"))
+          .count()
+
+        )
+'''
